@@ -27,7 +27,7 @@ install_nginx() {
     # 获取当前时间用于初始页面显示
     local now_time=$(date -u '+%Y-%m-%d %H:%M:%S')
 
-    # 写入主配置文件 (注意：这里对变量 $ 使用了转义，防止 Shell 提前解析)
+    # 写入主配置文件 (包含 1003 报错逻辑)
     cat <<EOF > "$NGINX_MAIN"
 user www-data;
 worker_processes auto;
@@ -99,23 +99,26 @@ EOF
     echo -e "${GREEN}安装与初始化成功！${NC}"
 }
 
-# --- 2. 卸载功能 ---
+# --- 2. 卸载功能 (带安全确认) ---
 uninstall_nginx() {
-    read -p "确定要卸载 Nginx 并清空所有配置吗？(y/n): " confirm
-    if [[ "$confirm" == "y" ]]; then
+    echo -e "${RED}警告：此操作将彻底删除 Nginx 及其所有转发配置！${NC}"
+    read -p "请输入大写的 YES 确认卸载: " confirm
+    if [[ "$confirm" == "YES" ]]; then
+        echo -e "${YELLOW}正在卸载...${NC}"
         systemctl stop nginx
         apt-get purge nginx nginx-full nginx-common -y
         apt-get autoremove -y
         rm -rf /etc/nginx
-        echo -e "${YELLOW}Nginx 及所有配置文件已移除。${NC}"
+        echo -e "${GREEN}Nginx 及所有配置文件已彻底移除。${NC}"
+    else
+        echo -e "${YELLOW}已取消卸载。${NC}"
     fi
 }
 
-# --- 3. 同步配置 ---
+# --- 3. 同步配置 (核心同步逻辑) ---
 sync_configs() {
     [[ ! -f "$DOMAIN_LIST" ]] && touch "$DOMAIN_LIST"
     
-    # 动态构建内容
     local map_entries_443=""
     local map_entries_2053=""
     local upstream_blocks=""
@@ -129,7 +132,6 @@ sync_configs() {
         upstream_blocks="${upstream_blocks}upstream server_${tag}_443 { server $back:443; }\nupstream server_${tag}_2053 { server $back:2053; }\n"
     done < "$DOMAIN_LIST"
 
-    # 生成 stream.conf
     cat <<EOF > "$STREAM_CONF"
 stream {
     resolver 8.8.8.8 1.1.1.1 valid=30s;
@@ -165,9 +167,9 @@ EOF
 
     if nginx -t > /dev/null 2>&1; then
         systemctl reload nginx
-        echo -e "${GREEN}配置已同步并重载！${NC}"
+        echo -e "${GREEN}配置已同步并生效！${NC}"
     else
-        echo -e "${RED}错误：Nginx 配置校验失败！${NC}"
+        echo -e "${RED}同步后发现 Nginx 配置语法错误，请检查 domains.txt${NC}"
         nginx -t
     fi
 }
@@ -175,18 +177,18 @@ EOF
 # --- 主菜单 ---
 while true; do
     echo -e "\n${YELLOW}=== Nginx 转发自动化管理系统 ===${NC}"
-    echo "1. 初次安装 (安装 Nginx + 1003 报错页面)"
-    echo "2. 同步配置 (从 domains.txt 更新规则)"
-    echo "3. 编辑域名列表 (domains.txt)"
+    echo "1. 同步配置 (从 domains.txt 更新规则)"
+    echo "2. 编辑域名列表 (domains.txt)"
+    echo "3. 初次安装 (安装 Nginx + 1003 报错页面)"
     echo "4. 彻底卸载 Nginx"
     echo "5. 退出"
-    read -p "选择操作 [1-5]: " opt
+    read -p "请选择操作 [1-5]: " opt
     case $opt in
-        1) install_nginx ;;
-        2) sync_configs ;;
-        3) vi "$DOMAIN_LIST" ;;
+        1) sync_configs ;;
+        2) vi "$DOMAIN_LIST" ;;
+        3) install_nginx ;;
         4) uninstall_nginx ;;
         5) exit 0 ;;
-        *) echo "无效选项" ;;
+        *) echo -e "${RED}无效选项${NC}" ;;
     esac
 done
