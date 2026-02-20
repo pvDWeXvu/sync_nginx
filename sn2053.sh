@@ -23,7 +23,9 @@ install_nginx() {
     
     [[ -f "$NGINX_MAIN" ]] && cp $NGINX_MAIN "${NGINX_MAIN}.bak"
     local now_time=$(date -u '+%Y-%m-%d %H:%M:%S')
+    local fake_ray=$(cat /proc/sys/kernel/random/uuid | tr -d '-' | cut -c1-16)
 
+    # 写入主配置文件
     cat <<EOF > "$NGINX_MAIN"
 user www-data;
 worker_processes auto;
@@ -44,22 +46,80 @@ http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
 
-    ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;
+    ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers on;
-    access_log /var/log/nginx/access.log;
+
+    # 模拟 CF 响应头
+    add_header Server "cloudflare" always;
+    add_header Content-Type "text/html; charset=UTF-8" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Cache-Control "private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0" always;
 
     server {
         listen 80;
         server_name _;
+
         location / {
-            default_type text/html;
-            add_header CF-Ray "\$request_id-SJC"; 
-            add_header Server "cloudflare";
-            return 403 '<html><head><title>Direct IP access not allowed | Cloudflare</title></head><body><div style="text-align:center;padding:100px;"><h1>Error 1003</h1><p>Direct IP access not allowed</p><hr><p>Cloudflare</p></div></body></html>';
+            # 动态生成伪造的 Ray ID
+            set \$fake_ray_id "${fake_ray}";
+            add_header CF-Ray "\$fake_ray_id-SJC" always;
+
+            return 403 '<!DOCTYPE html>
+<html class="no-js" lang="en-US"> <head>
+<title>Direct IP access not allowed | Cloudflare</title>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=Edge,chrome=1" />
+<meta name="robots" content="noindex, nofollow" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style type="text/css">
+  body{margin:0;padding:0}
+  .cf-error-details .cf-error-type:before{content:"\\00a0" content-visibility:hidden;display:block;height:0}
+  #cf-wrapper #cf-error-details .cf-error-type-container{margin-bottom:4px}
+  #cf-wrapper #cf-error-details .cf-status-label{color:#bd242a}
+  #cf-wrapper #cf-error-details .cf-status-name{font-weight:500}
+  #cf-wrapper #cf-error-details .cf-status-desc{color:#404040}
+  #cf-wrapper #cf-error-details .cf-error-header-desc{font-size:18px;font-weight:400;color:#404040;line-height:1.3;margin:0}
+  #cf-wrapper #cf-error-details .cf-error-footer{padding:1.33333rem 0;border-top:1px solid #ebebeb;text-align:left;font-size:13px}
+  #cf-wrapper #cf-error-details .cf-footer-item{display:inline-block;white-space:nowrap}
+  #cf-wrapper #cf-error-details .cf-footer-separator{margin:0 .5rem;color:#ebebeb}
+  #cf-wrapper #cf-error-details .cf-footer-separator:before{content:"\\2022"}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen,Ubuntu,Cantarell,"Fira Sans","Droid Sans","Helvetica Neue",sans-serif;font-size:15px;line-height:1.5;color:#404040}
+  .cf-wrapper{width:90%;margin-left:auto;margin-right:auto;max-width:960px}
+  .cf-section{padding:2.5rem 0}
+  h1{font-size:2.4rem;line-height:1.1;font-weight:400;margin:0 0 .5rem}
+  p{margin-top:0;margin-bottom:1.5rem}
+  .cf-gray{color:#999}
+</style>
+</head>
+<body>
+  <div id="cf-wrapper">
+    <div id="cf-error-details" class="cf-error-details-wrapper">
+      <div class="cf-wrapper cf-error-overview">
+        <div class="cf-section">
+          <h1 class="cf-error-title">Error 1003</h1>
+          <p class="cf-error-header-desc">Direct IP access not allowed</p>
+        </div>
+      </div>
+      <div class="cf-wrapper cf-error-footer cf-footer">
+        <div class="cf-section">
+          <div class="cf-footer-item">Ray ID: <strong>\$fake_ray_id</strong></div>
+          <div class="cf-footer-separator"></div>
+          <div class="cf-footer-item"><span>$now_time UTC</span></div>
+          <div class="cf-footer-separator"></div>
+          <div class="cf-footer-item"><span>Cloudflare</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>';
         }
     }
+
     include /etc/nginx/conf.d/*.conf;
 }
+
 include $STREAM_CONF;
 EOF
 
