@@ -14,14 +14,14 @@ NC='\033[0m'
 # 权限检查
 [[ $EUID -ne 0 ]] && echo -e "${RED}错误：请以 root 权限运行此脚本${NC}" && exit 1
 
-# --- 1. 安装功能 ---
+# --- 1. 安装功能 (高仿 Cloudflare 优化版) ---
 install_nginx() {
-    echo -e "${YELLOW}正在开始安装 Nginx 及初始化配置...${NC}"
+    echo -e "${YELLOW}正在开始安装 Nginx 并配置高仿 Cloudflare 1003 页面...${NC}"
     
     apt-get update -y
     apt-get install nginx-full -y
     
-    [[ -f "$NGINX_MAIN" ]] && cp $NGINX_MAIN "${NGINX_MAIN}.bak"
+    # 获取当前 UTC 时间和模拟一个 Ray ID
     local now_time=$(date -u '+%Y-%m-%d %H:%M:%S')
     local fake_ray=$(cat /proc/sys/kernel/random/uuid | tr -d '-' | cut -c1-16)
 
@@ -123,15 +123,11 @@ http {
 include $STREAM_CONF;
 EOF
 
-    # 初始化空的 stream.conf
-    touch "$DOMAIN_LIST"
     sync_configs
-    
     systemctl enable nginx
     systemctl restart nginx
-    echo -e "${GREEN}安装与初始化成功！本机仅监听 80(报错) 和 443(转发)${NC}"
+    echo -e "${GREEN}安装与高仿配置初始化成功！${NC}"
 }
-
 # --- 2. 卸载功能 ---
 uninstall_nginx() {
     echo -e "${RED}警告：此操作将彻底删除 Nginx！${NC}"
